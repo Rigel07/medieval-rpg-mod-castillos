@@ -1,0 +1,64 @@
+name: Build mod desde ZIP
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Descomprimir el ZIP (si lo hay)
+        run: |
+          shopt -s nullglob
+          for z in *.zip; do
+            echo "Descomprimiendo: $z"
+            unzip -o -q "$z" -d _proyecto
+          done
+
+      - name: Localizar el proyecto
+        id: find
+        run: |
+          F=$(find . -name settings.gradle -not -path './.git/*' -not -path '*/__MACOSX/*' | head -n 1)
+          if [ -z "$F" ]; then
+            echo "::error::No se encontro settings.gradle. Archivos del repo:"
+            find . -not -path './.git/*' | head -50
+            exit 1
+          fi
+          echo "Proyecto en: $(dirname "$F")"
+          echo "dir=$(dirname "$F")" >> "$GITHUB_OUTPUT"
+
+      - name: Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Gradle 8.1.1
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: '8.1.1'
+
+      - name: Compilar
+        working-directory: ${{ steps.find.outputs.dir }}
+        run: gradle build --no-daemon
+
+      - name: Guardar el .jar como artefacto
+        uses: actions/upload-artifact@v4
+        with:
+          name: mod-jar
+          path: ${{ steps.find.outputs.dir }}/build/libs/*.jar
+
+      - name: Publicar el .jar en Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: Build ${{ github.run_number }}
+          files: ${{ steps.find.outputs.dir }}/build/libs/*.jar
